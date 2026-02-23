@@ -1,0 +1,204 @@
+# Credit Scoring MLOps (FastAPI + Monitoring + Drift)
+
+Projet de scoring de crédit industrialisé à partir d’un notebook existant, avec API FastAPI, tests automatisés, conteneur Docker, pipeline CI/CD GitHub Actions, logging JSON structuré, dashboard de monitoring et rapport de data drift.
+
+## Objectifs
+
+- Exposer un modèle de scoring via API REST (`/predict`, `/health`, `/metrics`)
+- Charger le modèle une seule fois au démarrage de l’API
+- Garantir la reproductibilité locale (entraînement demo, tests, conteneur)
+- Tracer les requêtes en JSON Lines sans stocker de données sensibles
+- Surveiller la performance opérationnelle (latence, erreurs, distribution des scores)
+- Détecter le drift entre un jeu de référence et des données de production loggées
+
+## Structure du dépôt
+
+```text
+.
+├── api/
+│   ├── deps.py
+│   ├── main.py
+│   └── routes.py
+├── data/
+│   └── reference/
+├── docs/
+│   └── screenshots/
+├── drift/
+│   └── run_drift.py
+├── monitoring/
+│   └── streamlit_app.py
+├── models/
+├── reports/
+├── scripts/
+│   ├── export_model.py
+│   ├── simulate_production.py
+│   └── train.py
+├── src/
+│   └── credit_scoring/
+│       ├── config.py
+│       ├── inference.py
+│       ├── logging_utils.py
+│       ├── model.py
+│       ├── monitoring.py
+│       ├── preprocessing.py
+│       └── schema.py
+├── tests/
+├── .github/workflows/ci.yml
+├── Dockerfile
+├── requirements.txt
+└── README.md
+```
+
+## Données et sécurité
+
+- Ne pas commiter de données brutes ni de secrets.
+- Le dossier `data/` est ignoré par Git, sauf placeholders techniques.
+- Les logs API (`data/production_logs.jsonl`) contiennent un hash du payload et des métadonnées, pas de PII brute.
+- Les variables sensibles éventuelles doivent être passées via variables d’environnement, jamais en dur.
+
+## Installation locale (Windows PowerShell)
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+## Entraîner / exporter le modèle
+
+Mode demo reproductible (dataset synthétique):
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m scripts.train
+```
+
+Artefact généré:
+
+- `models/pipeline.joblib`
+
+## Lancer l’API
+
+```powershell
+$env:PYTHONPATH = "src"
+uvicorn api.main:app --host 0.0.0.0 --port 8000
+```
+
+Endpoints:
+
+- `GET /health` : état service, version, modèle chargé
+- `POST /predict` : score, décision, version modèle, latence
+- `GET /metrics` : métriques runtime en mémoire
+
+### Exemple `curl` pour `/predict`
+
+```bash
+curl -X POST "http://127.0.0.1:8000/predict" \
+	-H "Content-Type: application/json" \
+	-d '{
+		"age": 35,
+		"income": 55000,
+		"credit_amount": 12000,
+		"annuity": 1200,
+		"employment_years": 7,
+		"family_members": 3
+	}'
+```
+
+## Générer des logs de production simulés
+
+1. Démarrer l’API.
+2. Dans un second terminal:
+
+```powershell
+python -m scripts.simulate_production
+```
+
+Fichier de logs attendu:
+
+- `data/production_logs.jsonl`
+
+## Monitoring Streamlit
+
+```powershell
+streamlit run monitoring/streamlit_app.py
+```
+
+Le dashboard affiche:
+
+- Volume de requêtes
+- Taux d’erreur
+- Distribution des scores
+- Statistiques de latence (p50/p95)
+
+## Data Drift (Evidently)
+
+Préparer un jeu de référence non sensible dans:
+
+- `data/reference/reference.csv`
+
+Puis lancer:
+
+```powershell
+python -m drift.run_drift
+```
+
+Rapport généré:
+
+- `reports/drift_report.html`
+
+## Tests
+
+```powershell
+python -m pytest -q tests
+```
+
+Tests inclus:
+
+- Validation des entrées Pydantic
+- Inference (score dans le domaine attendu)
+- Intégration API (`/predict` succès + erreur 422)
+
+## Docker
+
+### Build
+
+```powershell
+docker build -t credit-scoring:local .
+```
+
+### Run
+
+```powershell
+docker run --rm -p 8000:8000 credit-scoring:local
+```
+
+## CI/CD (GitHub Actions)
+
+Workflow: `.github/workflows/ci.yml`
+
+Jobs:
+
+1. `lint-test` : installation dépendances + `pytest`
+2. `build-docker` : build image Docker si tests OK
+3. `deploy-simulated` : simulation de déploiement (`echo "deploy ok"`)
+
+## Interprétation monitoring et drift
+
+- **Latence p95 en hausse**: possible saturation CPU, modèle trop lourd, I/O disque.
+- **Taux d’erreur > 1-2%**: vérifier validation input, dépendances externes, santé du modèle.
+- **Distribution score qui se décale**: possible changement population ou qualité des entrées.
+- **Drift features significatif**: réentraîner le modèle ou recalibrer les seuils de décision.
+
+## Captures d’écran attendues (manuel)
+
+Voir le guide dans `docs/screenshots/README.md`.
+
+## Limites actuelles
+
+- Pipeline de drift dépend de la qualité et du schéma des logs de production.
+- Le mode demo utilise un modèle synthétique pour garantir la reproductibilité sans dataset sensible.
+
+## Licence
+
+Usage éducatif et démonstration MLOps.
