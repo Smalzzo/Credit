@@ -12,6 +12,7 @@ def test_invalid_age_raises_validation_error():
             credit_amount=500,
             annuity=50,
             employment_years=2,
+            family_members=2,
         )
 
 
@@ -23,4 +24,5 @@ def test_invalid_income_raises_validation_error():
             credit_amount=500,
             annuity=50,
             employment_years=2,
+            family_members=2,
         )

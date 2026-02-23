@@ -9,6 +9,7 @@ class ClientFeatures(BaseModel):
     credit_amount: float = Field(gt=0)
     annuity: float = Field(gt=0)
     employment_years: float = Field(ge=0)
+    family_members: float = Field(gt=0)
 
 
 class PredictionResponse(BaseModel):

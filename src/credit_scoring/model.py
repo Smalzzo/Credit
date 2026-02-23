@@ -16,11 +16,11 @@ class DemoModel:
 
     def predict_proba(self, frame: pd.DataFrame) -> np.ndarray:
         raw = (
-            0.002 * frame["age"]
+            0.015 * frame["employment_age_perc"]
+            + 0.10 * frame["income_credit_perc"]
+            - 2.5 * frame["annuity_income_perc"]
+            - 1.8 * frame["payment_rate"]
             + 0.000001 * frame["income"]
-            - 0.000001 * frame["credit_amount"]
-            - 0.000005 * frame["annuity"]
-            + 0.01 * frame["employment_years"]
         )
         score = 1.0 / (1.0 + np.exp(-raw.to_numpy(dtype=float)))
         return np.column_stack([1 - score, score])

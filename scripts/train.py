@@ -10,24 +10,28 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
+from credit_scoring.preprocessing import build_model_features
+
 
 def build_demo_dataset(n_rows: int = 500, seed: int = 42) -> tuple[pd.DataFrame, pd.Series]:
     rng = pd.Series(range(n_rows)).sample(frac=1.0, random_state=seed).reset_index(drop=True)
-    features = pd.DataFrame(
+    raw_features = pd.DataFrame(
         {
             "age": 21 + (rng % 50),
             "income": 18000 + (rng * 130),
             "credit_amount": 3000 + (rng * 40),
             "annuity": 300 + (rng * 3),
             "employment_years": rng % 20,
+            "family_members": 1 + (rng % 5),
         }
     )
+    features = build_model_features(raw_features)
     target = (
-        0.003 * features["age"]
+        0.03 * features["employment_age_perc"]
+        + 0.08 * features["income_credit_perc"]
+        - 2.0 * features["annuity_income_perc"]
+        - 1.2 * features["payment_rate"]
         + 0.000002 * features["income"]
-        - 0.000001 * features["credit_amount"]
-        - 0.000004 * features["annuity"]
-        + 0.015 * features["employment_years"]
         > 0.2
     ).astype(int)
     return features, target

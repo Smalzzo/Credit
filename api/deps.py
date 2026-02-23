@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from credit_scoring.config import MODEL_PATH
 from credit_scoring.model import load_model
@@ -12,7 +12,7 @@ from credit_scoring.monitoring import RuntimeMetrics
 @dataclass
 class AppState:
     model: object | None = None
-    metrics: RuntimeMetrics = RuntimeMetrics()
+    metrics: RuntimeMetrics = field(default_factory=RuntimeMetrics)
 
 
 state = AppState()

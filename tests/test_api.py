@@ -15,6 +15,7 @@ def test_predict_ok():
         "credit_amount": 12000,
         "annuity": 1200,
         "employment_years": 6,
+        "family_members": 3,
     }
     response = client.post("/predict", json=payload)
     assert response.status_code == 200
@@ -29,6 +30,7 @@ def test_predict_validation_error():
         "credit_amount": 12000,
         "annuity": 1200,
         "employment_years": 6,
+        "family_members": 3,
     }
     response = client.post("/predict", json=payload)
     assert response.status_code == 422

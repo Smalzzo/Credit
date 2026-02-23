@@ -15,6 +15,7 @@ def build_payload(valid: bool = True) -> dict:
             "credit_amount": 12000,
             "annuity": 1200,
             "employment_years": 5,
+            "family_members": 2,
         }
     return {
         "age": random.randint(20, 70),
@@ -22,6 +23,7 @@ def build_payload(valid: bool = True) -> dict:
         "credit_amount": random.randint(1500, 35000),
         "annuity": random.randint(200, 3000),
         "employment_years": random.randint(0, 35),
+        "family_members": random.randint(1, 6),
     }
 
 

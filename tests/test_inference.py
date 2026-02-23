@@ -11,6 +11,7 @@ def test_inference_returns_score_in_range():
         credit_amount=15000,
         annuity=1700,
         employment_years=8,
+        family_members=3,
     )
     result = run_inference(model, payload)
     assert 0 <= result.score <= 1
