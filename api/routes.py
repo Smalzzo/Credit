@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from time import perf_counter
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from api.deps import state
-from credit_scoring.config import LOG_PATH, MODEL_VERSION
+from credit_scoring.config import MODEL_VERSION
 from credit_scoring.inference import run_inference
-from credit_scoring.logging_utils import append_jsonl, hash_payload
 from credit_scoring.schema import ClientFeatures, HealthResponse, PredictionResponse
 
 
@@ -31,26 +30,18 @@ def metrics() -> dict:
 
 
 @router.post("/predict", response_model=PredictionResponse)
-def predict(payload: ClientFeatures) -> PredictionResponse:
+def predict(payload: ClientFeatures, request: Request) -> PredictionResponse:
     if state.model is None:
+        request.state.error_message = "model_not_loaded"
         raise HTTPException(status_code=503, detail="Model is not loaded")
     started = perf_counter()
     try:
         result = run_inference(state.model, payload)
         latency_ms = (perf_counter() - started) * 1000
-        state.metrics.record(latency_ms, result.inference_ms, is_error=False)
-        append_jsonl(
-            LOG_PATH,
-            {
-                "endpoint": "/predict",
-                "status_code": 200,
-                "latency_ms": latency_ms,
-                "inference_ms": result.inference_ms,
-                "payload_hash": hash_payload(payload.model_dump()),
-                "score": result.score,
-                "model_version": result.model_version,
-            },
-        )
+        request.state.inference_ms = result.inference_ms
+        request.state.score = result.score
+        request.state.decision = result.decision
+        request.state.model_version = result.model_version
         return PredictionResponse(
             score=result.score,
             decision=result.decision,
@@ -60,18 +51,6 @@ def predict(payload: ClientFeatures) -> PredictionResponse:
     except HTTPException:
         raise
     except Exception as exc:
-        latency_ms = (perf_counter() - started) * 1000
-        state.metrics.record(latency_ms, 0.0, is_error=True)
-        append_jsonl(
-            LOG_PATH,
-            {
-                "endpoint": "/predict",
-                "status_code": 500,
-                "latency_ms": latency_ms,
-                "inference_ms": 0.0,
-                "payload_hash": hash_payload(payload.model_dump()),
-                "error": str(exc),
-                "model_version": getattr(state.model, "model_version", MODEL_VERSION),
-            },
-        )
+        request.state.error_message = str(exc)
+        request.state.model_version = getattr(state.model, "model_version", MODEL_VERSION)
         raise HTTPException(status_code=500, detail="Prediction failed") from exc
