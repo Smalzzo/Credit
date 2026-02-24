@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from time import perf_counter
+from typing import Union
 
 from fastapi import APIRouter, HTTPException, Request
 
 from api.deps import state
 from credit_scoring.config import MODEL_VERSION
-from credit_scoring.inference import run_inference
-from credit_scoring.schema import ClientFeatures, HealthResponse, PredictionResponse
+from credit_scoring.inference import run_inference, run_inference_from_feature_dict
+from credit_scoring.schema import ClientFeatures, HealthResponse, NotebookFeaturesRequest, PredictionResponse
 
 
 router = APIRouter()
@@ -30,13 +31,22 @@ def metrics() -> dict:
 
 
 @router.post("/predict", response_model=PredictionResponse)
-def predict(payload: ClientFeatures, request: Request) -> PredictionResponse:
+def predict(payload: Union[ClientFeatures, NotebookFeaturesRequest], request: Request) -> PredictionResponse:
     if state.model is None:
         request.state.error_message = "model_not_loaded"
         raise HTTPException(status_code=503, detail="Model is not loaded")
     started = perf_counter()
     try:
-        result = run_inference(state.model, payload)
+        if isinstance(payload, NotebookFeaturesRequest):
+            if not hasattr(state.model, "feature_names"):
+                request.state.error_message = "notebook_payload_requires_notebook_model"
+                raise HTTPException(
+                    status_code=400,
+                    detail="Le payload 'features' nécessite un modèle notebook exporté (notebook_model.joblib).",
+                )
+            result = run_inference_from_feature_dict(state.model, payload.features)
+        else:
+            result = run_inference(state.model, payload)
         latency_ms = (perf_counter() - started) * 1000
         request.state.inference_ms = result.inference_ms
         request.state.score = result.score

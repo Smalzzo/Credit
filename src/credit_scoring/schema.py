@@ -1,5 +1,7 @@
 """Pydantic schemas used by the FastAPI service."""
 
+from typing import Dict
+
 from pydantic import BaseModel, Field
 
 
@@ -17,6 +19,10 @@ class PredictionResponse(BaseModel):
     decision: str
     model_version: str
     latency_ms: float
+
+
+class NotebookFeaturesRequest(BaseModel):
+    features: Dict[str, float | int | None]
 
 
 class HealthResponse(BaseModel):
