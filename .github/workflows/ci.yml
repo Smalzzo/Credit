@@ -9,9 +9,9 @@ on:
 
 env:
   PYTHON_VERSION: "3.12"
-  HF_SPACE: "sma-nas/Futurisys"
-  HF_MODEL_REPO: "sma-nas/Futurysis"
-  HF_USERNAME: "sma-nas"
+  HF_SPACE: ${{ vars.HF_SPACE }}
+  HF_MODEL_REPO: ${{ vars.HF_MODEL_REPO }}
+  HF_USERNAME: ${{ vars.HF_USERNAME }}
 
 permissions:
   contents: read
@@ -76,6 +76,20 @@ jobs:
         with:
           fetch-depth: 0
           lfs: true
+
+      - name: Vérifier la configuration HF
+        env:
+          HF_SPACE: ${{ env.HF_SPACE }}
+          HF_MODEL_REPO: ${{ env.HF_MODEL_REPO }}
+          HF_USERNAME: ${{ env.HF_USERNAME }}
+          HF_TOKEN: ${{ secrets.HF_SECRET }}
+        run: |
+          set -euo pipefail
+          [ -n "${HF_SPACE:-}" ] || { echo "Variable manquante: HF_SPACE"; exit 1; }
+          [ -n "${HF_MODEL_REPO:-}" ] || { echo "Variable manquante: HF_MODEL_REPO"; exit 1; }
+          [ -n "${HF_USERNAME:-}" ] || { echo "Variable manquante: HF_USERNAME"; exit 1; }
+          [ -n "${HF_TOKEN:-}" ] || { echo "Secret manquant: HF_SECRET"; exit 1; }
+          echo "Configuration HF OK"
 
       - name: Chargement du modèle sur HF (Model repo)
         env:
