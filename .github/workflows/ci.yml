@@ -1,55 +1,144 @@
-name: ci
+name: CI + CD to Hugging Face
 
 on:
   push:
-    branches: ["main", "master"]
+    branches: ["**"]
+    tags: ["v*.*.*"]
   pull_request:
-    branches: ["main", "master"]
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.12"
+  HF_SPACE: "sma-nas/Futurisys"
+  HF_MODEL_REPO: "sma-nas/Futurysis"
+  HF_USERNAME: "sma-nas"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
 
 jobs:
-  lint-test:
+  INSTALL-BUILD-TEST:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
         with:
-          python-version: "3.11"
+          lfs: true
 
-      - name: Install dependencies
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Installation dépendances
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          python -m pip install --upgrade pip --quiet
+          if [ -f requirements.txt ]; then pip install -r requirements.txt --quiet; fi
+          pip install build pytest pytest-cov --quiet
 
-      - name: Run tests
+      - name: Build package (sdist + wheel)
+        run: python -m build --quiet 2>/dev/null || python -m build || true
+
+      - name: Tests + coverage
         env:
           PYTHONPATH: src
-        run: pytest -q
+        run: |
+          pytest --cov=credit_scoring --cov-report=xml --cov-report=term-missing -q --disable-warnings
 
-  build-docker:
-    runs-on: ubuntu-latest
-    needs: lint-test
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Display Coverage Summary
+        if: always()
+        run: |
+          echo "## Coverage Report" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          coverage report --skip-empty >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Build Docker image
         run: docker build -t credit-scoring:${{ github.sha }} .
 
-      - name: Save image tag
-        run: echo "credit-scoring:${{ github.sha }}" > image_tag.txt
-
-      - name: Upload image tag artifact
+      - name: Coverage artifact
         uses: actions/upload-artifact@v4
         with:
-          name: image-tag
-          path: image_tag.txt
+          name: coverage-xml
+          path: coverage.xml
 
-  deploy-simulated:
+  DEPLOY-TO-HF:
+    needs: [INSTALL-BUILD-TEST]
+    if: >
+      success() && (
+        startsWith(github.ref, 'refs/heads/main') ||
+        startsWith(github.ref, 'refs/heads/master') ||
+        startsWith(github.ref, 'refs/tags/v')
+      )
     runs-on: ubuntu-latest
-    needs: build-docker
     steps:
-      - name: Simulated deploy
-        run: echo "deploy ok"
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Chargement du modèle sur HF (Model repo)
+        env:
+          HF_TOKEN: ${{ secrets.HF_SECRET }}
+          MODEL_REPO_ID: ${{ env.HF_MODEL_REPO }}
+          MODEL_FILENAME: notebook_model.joblib
+          MODEL_LOCAL_PATH: models/notebook_model.joblib
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip --quiet
+          pip install huggingface_hub --quiet
+          python - <<'PY'
+          import os, sys
+          from huggingface_hub import HfApi, create_repo
+
+          repo_id = os.environ.get('MODEL_REPO_ID')
+          filename = os.environ.get('MODEL_FILENAME', 'notebook_model.joblib')
+          local_path = os.path.join(os.getcwd(), os.environ.get('MODEL_LOCAL_PATH', 'models/notebook_model.joblib'))
+
+          if not os.path.isfile(local_path):
+              print('Model not found at', local_path, '- skipping upload')
+              sys.exit(0)
+
+          token = os.environ.get('HF_TOKEN')
+          create_repo(repo_id=repo_id, repo_type='model', private=True, token=token, exist_ok=True)
+
+          api = HfApi(token=token)
+          print('Uploading', local_path, 'to', repo_id)
+          api.upload_file(
+              path_or_fileobj=local_path,
+              path_in_repo=filename,
+              repo_id=repo_id,
+              repo_type='model',
+          )
+          print('Upload complete')
+          PY
+
+      - name: Préparer le dossier de déploiement (sources uniquement)
+        run: |
+          set -euo pipefail
+          rm -rf deploy && mkdir deploy
+          rsync -a --delete --quiet \
+            --exclude='.git' --exclude='.github' \
+            --exclude='*.db' --exclude='**/*.db' \
+            --exclude='data/' --exclude='reports/' \
+            --exclude='models/notebook_model.joblib' \
+            ./ deploy/
+          echo "Deploy directory prepared"
+
+      - name: Push sources vers la Space (HF build)
+        env:
+          HF_TOKEN: ${{ secrets.HF_SECRET }}
+          HF_SPACE: ${{ env.HF_SPACE }}
+        run: |
+          set -euo pipefail
+          cd deploy
+          git init -q
+          git add .
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "Deploy ${GITHUB_SHA}" -q
+          git branch -M main
+          git remote add origin "https://oauth2:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE}"
+          echo "Pushing to Hugging Face Space..."
+          git push -f origin main -q
+          echo "Deployment successful"

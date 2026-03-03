@@ -238,6 +238,64 @@ Pour supprimer aussi le volume PostgreSQL:
 docker compose down -v
 ```
 
+## Déploiement API sur Hugging Face Spaces
+
+Objectif: déployer uniquement l'API FastAPI dans un Space Docker.
+
+### 1) Créer un Space
+
+- Type: **Docker**
+- Visibilité: selon besoin (public/private)
+- Nom suggéré: `credit-scoring-api`
+
+### 2) Préparer le repository du Space
+
+Le Space doit contenir au minimum:
+
+- `Dockerfile`
+- `requirements.txt`
+- `api/`
+- `src/`
+- `models/`
+- `drift/` (optionnel, utile si vous lancez l'analyse drift dans le container)
+
+Ajouter un `README.md` avec front-matter Hugging Face:
+
+```yaml
+---
+title: Credit Scoring API
+emoji: 📈
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+---
+```
+
+### 3) Variables d'environnement (Space Settings)
+
+- `MODEL_PATH` (optionnel): chemin du modèle à charger, ex. `/app/models/notebook_model.joblib`
+- `DATABASE_URL` (optionnel): laisser vide si vous ne connectez pas Postgres sur le Space
+
+### 4) Push vers le Space
+
+Exemple Git:
+
+```powershell
+git remote add hf https://huggingface.co/spaces/<user>/<space-name>
+git push hf master
+```
+
+### 5) Vérification
+
+Une fois le build terminé, endpoints attendus:
+
+- `/health`
+- `/docs`
+- `/predict` (ou `/predict-compact`, `/predict-notebook`)
+
+Note: l'image supporte le port dynamique du Space via `PORT`.
+
 ## CI/CD (GitHub Actions)
 
 Workflow: `.github/workflows/ci.yml`
