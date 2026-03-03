@@ -89,6 +89,16 @@ jobs:
           [ -n "${HF_MODEL_REPO:-}" ] || { echo "Variable manquante: HF_MODEL_REPO"; exit 1; }
           [ -n "${HF_USERNAME:-}" ] || { echo "Variable manquante: HF_USERNAME"; exit 1; }
           [ -n "${HF_TOKEN:-}" ] || { echo "Secret manquant: HF_SECRET"; exit 1; }
+          python -m pip install --upgrade pip --quiet
+          pip install huggingface_hub --quiet
+          python - <<'PY'
+          import os
+          from huggingface_hub import whoami
+
+          token = os.environ["HF_TOKEN"]
+          info = whoami(token=token)
+          print("HF auth OK as:", info.get("name") or info.get("fullname") or "unknown")
+          PY
           echo "Configuration HF OK"
 
       - name: Chargement du modèle sur HF (Model repo)
@@ -143,6 +153,7 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_SECRET }}
           HF_SPACE: ${{ env.HF_SPACE }}
+          HF_USERNAME: ${{ env.HF_USERNAME }}
         run: |
           set -euo pipefail
           cd deploy
@@ -152,7 +163,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git commit -m "Deploy ${GITHUB_SHA}" -q
           git branch -M main
-          git remote add origin "https://oauth2:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE}"
+          git remote add origin "https://${HF_USERNAME}:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE}"
           echo "Pushing to Hugging Face Space..."
           git push -f origin main -q
           echo "Deployment successful"
