@@ -1,13 +1,13 @@
 # Credit Scoring MLOps (FastAPI + Monitoring + Drift)
 
-Projet de scoring de crédit industrialisé à partir d’un notebook existant, avec API FastAPI, tests automatisés, conteneur Docker, pipeline CI/CD GitHub Actions, logging JSON structuré, dashboard de monitoring et rapport de data drift.
+Projet de scoring de crédit industrialisé à partir d’un notebook existant, avec API FastAPI, tests automatisés, conteneur Docker, pipeline CI/CD GitHub Actions, logging JSON structuré, stockage PostgreSQL, dashboard de monitoring et rapport de data drift.
 
 ## Objectifs
 
 - Exposer un modèle de scoring via API REST (`/predict`, `/health`, `/metrics`)
 - Charger le modèle une seule fois au démarrage de l’API
 - Garantir la reproductibilité locale (entraînement demo, tests, conteneur)
-- Tracer les requêtes en JSON Lines sans stocker de données sensibles
+- Tracer les requêtes en JSON structuré (PostgreSQL + fallback JSONL local)
 - Surveiller la performance opérationnelle (latence, erreurs, distribution des scores)
 - Détecter le drift entre un jeu de référence et des données de production loggées
 
@@ -64,6 +64,27 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
+## Configuration PostgreSQL (PoC local)
+
+Variable d’environnement utilisée par l’API, le script d’analyse et Streamlit:
+
+```powershell
+$env:DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/credit_monitoring"
+```
+
+Si `DATABASE_URL` est absent, le système continue en mode local via `data/production_logs.jsonl`.
+
+Pour forcer une stratégie PostgreSQL-first en local, exportez toujours `DATABASE_URL` avant de lancer API / Streamlit / drift.
+
+### Backfill des logs JSONL vers PostgreSQL
+
+Si vous avez déjà des logs dans `data/production_logs.jsonl`, vous pouvez les charger en base:
+
+```powershell
+$env:DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/credit_monitoring"
+python -m scripts.backfill_postgres_logs --input data/production_logs.jsonl
+```
+
 ## Entraîner / exporter le modèle
 
 Mode demo reproductible (dataset synthétique):
@@ -118,6 +139,10 @@ Fichier de logs attendu:
 
 - `data/production_logs.jsonl`
 
+Table PostgreSQL générée automatiquement au démarrage API (si `DATABASE_URL` défini):
+
+- `api_calls` (timestamp, endpoint, status_code, latence, input_features, score, décision, erreurs, etc.)
+
 ## Monitoring Streamlit
 
 ```powershell
@@ -130,6 +155,8 @@ Le dashboard affiche:
 - Taux d’erreur
 - Distribution des scores
 - Statistiques de latence (p50/p95)
+- Série temporelle de latence
+- Alertes automatiques (si générées par l’analyse)
 
 ## Data Drift (Evidently)
 
@@ -137,15 +164,27 @@ Préparer un jeu de référence non sensible dans:
 
 - `data/reference/reference.csv`
 
+Alternative automatique déjà branchée:
+
+- si `data/reference/reference.csv` est absent, le script reconstruit un CSV de référence depuis `data/reference/home_credit_reference_raw.json` + `models/notebook_model.joblib`.
+
 Puis lancer:
 
 ```powershell
 python -m drift.run_drift
 ```
 
-Rapport généré:
+Sorties générées:
 
 - `reports/drift_report.html`
+- `reports/monitoring_summary.json`
+
+Le script calcule automatiquement:
+
+- dérive des données (Evidently, sur features numériques communes référence/production),
+- taux d’erreur global,
+- anomalie de latence (comparaison p95 fenêtre récente vs baseline),
+- alertes de vigilance opérationnelle.
 
 ## Tests
 
@@ -171,6 +210,32 @@ docker build -t credit-scoring:local .
 
 ```powershell
 docker run --rm -p 8000:8000 credit-scoring:local
+```
+
+### Docker Compose (PostgreSQL + API + Streamlit)
+
+PoC local complet en un lancement:
+
+```powershell
+docker compose up -d --build
+```
+
+Services disponibles:
+
+- API: `http://localhost:8000` (Swagger: `/docs`)
+- Streamlit: `http://localhost:8501`
+- PostgreSQL: `localhost:5432` (`postgres/postgres`, DB `credit_monitoring`)
+
+Arrêt et nettoyage:
+
+```powershell
+docker compose down
+```
+
+Pour supprimer aussi le volume PostgreSQL:
+
+```powershell
+docker compose down -v
 ```
 
 ## CI/CD (GitHub Actions)

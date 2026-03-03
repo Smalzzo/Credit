@@ -10,12 +10,14 @@ from fastapi.responses import JSONResponse
 
 from api.deps import init_state, state
 from api.routes import router
-from credit_scoring.config import LOG_PATH, MODEL_VERSION
-from credit_scoring.logging_utils import append_jsonl, hash_payload
+from credit_scoring.config import DATABASE_URL, LOG_PATH, MODEL_VERSION
+from credit_scoring.logging_utils import append_jsonl, extract_model_inputs, hash_payload
+from credit_scoring.storage import PostgresStorage
 
 
 app = FastAPI(title="Credit Scoring API", version="0.1.0")
 app.include_router(router)
+pg_storage = PostgresStorage(DATABASE_URL)
 
 
 @app.middleware("http")
@@ -24,6 +26,7 @@ async def structured_logging_middleware(request: Request, call_next):
     raw_body = await request.body()
     payload_hash = None
     payload_keys: list[str] | None = None
+    input_features: dict[str, float] = {}
 
     if raw_body:
         try:
@@ -31,6 +34,7 @@ async def structured_logging_middleware(request: Request, call_next):
             if isinstance(parsed_body, dict):
                 payload_hash = hash_payload(parsed_body)
                 payload_keys = sorted(parsed_body.keys())
+                input_features = extract_model_inputs(parsed_body)
             else:
                 payload_hash = hash_payload({"payload_type": type(parsed_body).__name__})
         except Exception:
@@ -67,6 +71,7 @@ async def structured_logging_middleware(request: Request, call_next):
             "inference_ms": inference_ms,
             "payload_hash": payload_hash,
             "payload_keys": payload_keys,
+            "input_features": input_features,
             "score": getattr(request_with_body.state, "score", None),
             "decision": getattr(request_with_body.state, "decision", None),
             "model_version": getattr(request_with_body.state, "model_version", MODEL_VERSION),
@@ -76,8 +81,16 @@ async def structured_logging_middleware(request: Request, call_next):
             append_jsonl(LOG_PATH, event)
         except Exception:
             pass
+        try:
+            pg_storage.insert_event(event)
+        except Exception:
+            pass
 
 
 @app.on_event("startup")
 def startup_event() -> None:
     init_state()
+    try:
+        pg_storage.ensure_schema()
+    except Exception:
+        pass

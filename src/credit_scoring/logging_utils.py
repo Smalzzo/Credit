@@ -22,3 +22,26 @@ def append_jsonl(path: Path, event: dict[str, Any]) -> None:
     }
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+
+def extract_model_inputs(payload: dict[str, Any], max_features: int = 3000) -> dict[str, float]:
+    if not isinstance(payload, dict):
+        return {}
+
+    source: dict[str, Any]
+    if isinstance(payload.get("features"), dict):
+        source = payload["features"]
+    else:
+        source = payload
+
+    extracted: dict[str, float] = {}
+    for key, value in source.items():
+        if len(extracted) >= max_features:
+            break
+        if isinstance(value, bool):
+            extracted[str(key)] = float(value)
+            continue
+        if isinstance(value, (int, float)):
+            extracted[str(key)] = float(value)
+            continue
+    return extracted
