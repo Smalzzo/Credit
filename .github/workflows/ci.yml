@@ -143,6 +143,12 @@ jobs:
           rm -rf deploy && mkdir deploy
           rsync -a --delete --quiet \
             --exclude='.git' --exclude='.github' \
+            --exclude='.venv/' --exclude='venv/' \
+            --exclude='__pycache__/' --exclude='**/__pycache__/' \
+            --exclude='*.pyc' --exclude='*.pyo' \
+            --exclude='notebooks/' --exclude='docs/' --exclude='tests/' \
+            --exclude='mlruns/' --exclude='**/mlruns/' --exclude='**/mlruns.old/' \
+            --exclude='*.ipynb' \
             --exclude='*.db' --exclude='**/*.db' \
             --exclude='data/' --exclude='reports/' \
             --exclude='models/notebook_model.joblib' \
@@ -168,6 +174,7 @@ jobs:
           colorFrom: blue
           colorTo: indigo
           sdk: docker
+          sdk_version: "latest"
           app_port: 7860
           pinned: false
           ---
