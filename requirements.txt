@@ -21,4 +21,7 @@ evidently>=0.6.0
 psycopg[binary]>=3.2.0
 jupyter>=1.0.0
 notebook>=7.0.0
+onnx>=1.16.0
+onnxruntime>=1.18.0
+onnxmltools>=1.13.0
 

@@ -9,8 +9,10 @@ import os
 from pathlib import Path
 import random
 import sys
+import time
 
 import joblib
+import numpy as np
 import pandas as pd
 import requests
 import streamlit as st
@@ -30,6 +32,79 @@ NOTEBOOK_PAYLOAD_PATH = Path("data/payload_notebook_sample.json")
 RAW_REFERENCE_PAYLOAD_PATH = Path("data/reference/home_credit_reference_raw.json")
 MODEL_BUNDLE_PATH = Path("models/notebook_model.joblib")
 DRIFT_REPORT_PATH = Path("reports/drift_report.html")
+
+
+def run_onnx_benchmark(model_bundle_path: Path, runs: int = 200, batch_size: int = 1) -> dict:
+    try:
+        import onnxruntime as ort
+        from onnxmltools import convert_lightgbm
+        from onnxconverter_common.data_types import FloatTensorType
+    except Exception as exc:
+        raise RuntimeError(
+            "Dépendances ONNX manquantes (onnxruntime/onnxmltools/onnxconverter_common)."
+        ) from exc
+
+    if not model_bundle_path.exists():
+        raise FileNotFoundError(f"Modèle introuvable: {model_bundle_path}")
+
+    artifact = joblib.load(model_bundle_path)
+    if not isinstance(artifact, dict) or not {"model", "feature_names", "medians"}.issubset(artifact.keys()):
+        raise ValueError("Le modèle doit être un bundle notebook avec model/feature_names/medians.")
+
+    model = artifact["model"]
+    feature_names = list(artifact["feature_names"])
+    medians = dict(artifact["medians"])
+
+    row = {name: float(medians.get(name, 0.0)) for name in feature_names}
+    frame = pd.DataFrame([row for _ in range(max(1, int(batch_size)))], columns=feature_names)
+
+    onnx_path = model_bundle_path.with_suffix(".onnx")
+    initial_types = [("input", FloatTensorType([None, len(feature_names)]))]
+    onnx_model = convert_lightgbm(model, initial_types=initial_types)
+    onnx_path.write_bytes(onnx_model.SerializeToString())
+
+    start_skl = time.perf_counter()
+    skl_probs = None
+    for _ in range(max(1, int(runs))):
+        skl_probs = model.predict_proba(frame)[:, 1]
+    skl_ms = ((time.perf_counter() - start_skl) * 1000) / max(1, int(runs))
+
+    session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
+    input_name = session.get_inputs()[0].name
+    output_names = [out.name for out in session.get_outputs()]
+    payload = frame.to_numpy(dtype=np.float32)
+
+    def _extract_positive(outputs_obj):
+        for out in outputs_obj:
+            if isinstance(out, np.ndarray):
+                if out.ndim == 2 and out.shape[1] >= 2:
+                    return out[:, 1]
+                if out.ndim == 1:
+                    return out
+            if isinstance(out, list) and out and isinstance(out[0], dict):
+                return np.asarray([float(item.get(1, 0.0)) for item in out], dtype=float)
+        raise RuntimeError("Sortie ONNX inattendue.")
+
+    start_onnx = time.perf_counter()
+    onnx_probs = None
+    for _ in range(max(1, int(runs))):
+        outputs = session.run(output_names, {input_name: payload})
+        onnx_probs = _extract_positive(outputs)
+    onnx_ms = ((time.perf_counter() - start_onnx) * 1000) / max(1, int(runs))
+
+    max_abs_diff = float(np.max(np.abs(np.asarray(skl_probs, dtype=float) - np.asarray(onnx_probs, dtype=float))))
+    speedup = float(skl_ms / onnx_ms) if onnx_ms > 0 else float("inf")
+
+    return {
+        "onnx_path": str(onnx_path),
+        "features": len(feature_names),
+        "runs": int(runs),
+        "batch_size": int(batch_size),
+        "sklearn_avg_ms": float(skl_ms),
+        "onnx_avg_ms": float(onnx_ms),
+        "speedup_x": float(speedup),
+        "max_abs_proba_diff": float(max_abs_diff),
+    }
 
 
 def load_logs(limit: int = 5000) -> pd.DataFrame:
@@ -374,6 +449,22 @@ if st.button("Predict", type="primary"):
 
 st.divider()
 
+st.subheader("Optimisation ONNX")
+onnx_col1, onnx_col2 = st.columns(2)
+onnx_runs = int(onnx_col1.number_input("Runs benchmark ONNX", min_value=10, max_value=2000, value=200, step=10))
+onnx_batch_size = int(onnx_col2.number_input("Batch size ONNX", min_value=1, max_value=256, value=1, step=1))
+
+if st.button("Benchmark ONNX", type="secondary"):
+    try:
+        with st.spinner("Benchmark ONNX en cours..."):
+            bench = run_onnx_benchmark(MODEL_BUNDLE_PATH, runs=onnx_runs, batch_size=onnx_batch_size)
+        st.success("Benchmark ONNX terminé")
+        st.write(bench)
+    except Exception as exc:
+        st.error(f"Benchmark ONNX impossible: {exc}")
+
+st.divider()
+
 st.subheader("Administration")
 confirm_reset = st.checkbox("Confirmer la remise à zéro des données monitoring", value=False)
 if st.button("Reset monitoring", type="secondary"):
@@ -412,9 +503,17 @@ if logs.empty:
     st.info("Aucun log disponible. Lancez l'API puis générez du trafic de test.")
 
 if not logs.empty:
-    st.metric("Requests", int(len(logs)))
-    st.metric("Error Rate", float((logs["status_code"] >= 400).mean()))
-    st.metric("Latency p95 (ms)", float(pd.to_numeric(logs["latency_ms"], errors="coerce").quantile(0.95)))
+    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+    col_m1.metric("Requests", int(len(logs)))
+    col_m2.metric("Error Rate", float((logs["status_code"] >= 400).mean()))
+
+    latency_series_all = pd.to_numeric(logs["latency_ms"], errors="coerce")
+    col_m3.metric("Latency p95 (ms)", float(latency_series_all.quantile(0.95)))
+
+    if "inference_ms" in logs.columns:
+        inference_series_all = pd.to_numeric(logs["inference_ms"], errors="coerce")
+        inference_p95 = float(inference_series_all.quantile(0.95)) if inference_series_all.notna().any() else 0.0
+        col_m4.metric("Inference p95 (ms)", inference_p95)
 
     if "timestamp" in logs.columns:
         ts = pd.to_datetime(logs["timestamp"], errors="coerce")
@@ -428,9 +527,31 @@ if not logs.empty:
         st.subheader("Score distribution")
         st.bar_chart(logs["score"].dropna())
 
+    if "decision" in logs.columns:
+        st.subheader("Decision distribution")
+        decision_counts = logs["decision"].fillna("UNKNOWN").astype(str).value_counts()
+        st.bar_chart(decision_counts)
+        total_decisions = int(decision_counts.sum())
+        accepted = int(decision_counts.get("ACCEPT", 0))
+        rejected = int(decision_counts.get("REJECT", 0))
+        st.write(
+            {
+                "accepted_count": accepted,
+                "rejected_count": rejected,
+                "accepted_ratio": (accepted / total_decisions) if total_decisions > 0 else 0.0,
+                "rejected_ratio": (rejected / total_decisions) if total_decisions > 0 else 0.0,
+            }
+        )
+
     if "latency_ms" in logs.columns:
         st.subheader("Latency summary")
-        st.write({"p50": logs["latency_ms"].quantile(0.5), "p95": logs["latency_ms"].quantile(0.95)})
+        latency_series = pd.to_numeric(logs["latency_ms"], errors="coerce")
+        st.write({"p50": latency_series.quantile(0.5), "p95": latency_series.quantile(0.95)})
+
+    if "inference_ms" in logs.columns:
+        st.subheader("Inference summary")
+        inference_series = pd.to_numeric(logs["inference_ms"], errors="coerce")
+        st.write({"p50": inference_series.quantile(0.5), "p95": inference_series.quantile(0.95)})
 
     summary = load_monitoring_summary()
     if summary:

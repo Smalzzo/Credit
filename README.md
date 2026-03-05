@@ -186,6 +186,20 @@ Le script calcule automatiquement:
 - anomalie de latence (comparaison p95 fenêtre récente vs baseline),
 - alertes de vigilance opérationnelle.
 
+## Optimisation ONNX (démo)
+
+Le projet inclut une démo d'export ONNX et benchmark de latence:
+
+```powershell
+python -m scripts.onnx_optimization_demo --runs 300 --batch-size 1
+```
+
+Sorties:
+
+- Modèle ONNX exporté: `models/notebook_model.onnx`
+- Comparaison latence moyenne `sklearn` vs `onnxruntime`
+- Écart max de probabilité (`Max |proba diff|`)
+
 ## Tests
 
 ```powershell
