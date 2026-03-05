@@ -82,13 +82,13 @@ jobs:
           HF_SPACE: ${{ env.HF_SPACE }}
           HF_MODEL_REPO: ${{ env.HF_MODEL_REPO }}
           HF_USERNAME: ${{ env.HF_USERNAME }}
-          HF_TOKEN: ${{ secrets.HF_SECRET }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           set -euo pipefail
           [ -n "${HF_SPACE:-}" ] || { echo "Variable manquante: HF_SPACE"; exit 1; }
           [ -n "${HF_MODEL_REPO:-}" ] || { echo "Variable manquante: HF_MODEL_REPO"; exit 1; }
           [ -n "${HF_USERNAME:-}" ] || { echo "Variable manquante: HF_USERNAME"; exit 1; }
-          [ -n "${HF_TOKEN:-}" ] || { echo "Secret manquant: HF_SECRET"; exit 1; }
+          [ -n "${HF_TOKEN:-}" ] || { echo "Secret manquant: HF_TOKEN"; exit 1; }
           python -m pip install --upgrade pip --quiet
           pip install huggingface_hub --quiet
           python - <<'PY'
@@ -103,7 +103,7 @@ jobs:
 
       - name: Chargement du modèle sur HF (Model repo)
         env:
-          HF_TOKEN: ${{ secrets.HF_SECRET }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
           MODEL_REPO_ID: ${{ env.HF_MODEL_REPO }}
           MODEL_FILENAME: notebook_model.joblib
           MODEL_LOCAL_PATH: models/notebook_model.joblib
@@ -151,7 +151,7 @@ jobs:
 
       - name: Push sources vers la Space (HF build)
         env:
-          HF_TOKEN: ${{ secrets.HF_SECRET }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_SPACE: ${{ env.HF_SPACE }}
           HF_USERNAME: ${{ env.HF_USERNAME }}
         run: |
