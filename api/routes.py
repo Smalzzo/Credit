@@ -30,6 +30,18 @@ def _predict_internal(result, started: float, request: Request) -> PredictionRes
     )
 
 
+@router.get("/")
+def root() -> dict:
+    return {
+        "service": "credit-scoring-api",
+        "status": "ok",
+        "version": MODEL_VERSION,
+        "model_loaded": state.model is not None,
+        "docs": "/docs",
+        "health": "/health",
+    }
+
+
 @router.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse(
