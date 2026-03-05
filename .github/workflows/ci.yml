@@ -149,6 +149,35 @@ jobs:
             ./ deploy/
           echo "Deploy directory prepared"
 
+      - name: Générer README compatible Hugging Face Spaces
+        env:
+          HF_SPACE: ${{ env.HF_SPACE }}
+        run: |
+          set -euo pipefail
+          SPACE_NAME="${HF_SPACE##*/}"
+          cd deploy
+          if [ -f README.md ]; then
+            cp README.md README.body.md
+          else
+            echo "API de credit scoring" > README.body.md
+          fi
+
+          cat > README.md <<EOF
+          ---
+          title: ${SPACE_NAME}          
+          colorFrom: blue
+          colorTo: indigo
+          sdk: docker
+          app_port: 7860
+          pinned: false
+          ---
+
+          EOF
+
+          cat README.body.md >> README.md
+          rm -f README.body.md
+          echo "HF README configured"
+
       - name: Push sources vers la Space (HF build)
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
